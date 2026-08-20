@@ -1,5 +1,5 @@
-yfinance
+ccxt
+requests
 pandas
 numpy
-requests
-scikit-learn
+yfinance
