@@ -64,24 +64,26 @@ def analyze_coin(symbol):
         return "⚠️ بيانات غير كافية"
 
 def get_top_gainers():
-    try:
-        # جلب الأسعار العامة من مصدر لا يحظره سيرفر Railway
-        url = "https://api.binance.com/api/v3/ticker/24hr"
-        response = requests.get(url, timeout=10).json()
-        
-        usdt_pairs = []
-        for item in response:
-            symbol = item.get("symbol", "")
-            if symbol.endswith("USDT"):
-                formatted_symbol = symbol[:-4] + "/USDT"
-                change = float(item.get("priceChangePercent", 0))
-                usdt_pairs.append((formatted_symbol, change))
-                
-        sorted_pairs = sorted(usdt_pairs, key=lambda x: x[1], reverse=True)
-        return sorted_pairs[:5]
-    except Exception as e:
-        print(f"Error fetching top gainers: {e}")
-        return []
+    coins = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT", "AVAX/USDT", "DOGE/USDT", "LINK/USDT", "BNB/USDT", "SUI/USDT"]
+    results = []
+    
+    for symbol in coins:
+        try:
+            yahoo_symbol = symbol.replace('/USDT', '-USD')
+            df = yf.download(yahoo_symbol, period="5d", interval="1d", progress=False)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            if len(df) >= 2:
+                prev_close = df['Close'].iloc[-2]
+                latest_close = df['Close'].iloc[-1]
+                change = float(((latest_close - prev_close) / prev_close) * 100)
+                results.append((symbol, change))
+        except Exception as e:
+            print(f"Error for {symbol}: {e}")
+            continue
+            
+    sorted_pairs = sorted(results, key=lambda x: x[1], reverse=True)
+    return sorted_pairs[:5]
 
 last_update_id = 0
 def process_commands():
@@ -94,10 +96,10 @@ def process_commands():
             text = result["message"].get("text", "").strip()
 
             if text.startswith("/top"):
-                send_telegram("⏳ جاري البحث عن أفضل العملات ارتفاعاً...")
+                send_telegram("⏳ جاري تحليل السوق وجلب أفضل العملات...")
                 gainers = get_top_gainers()
                 if gainers:
-                    msg = "**أفضل 5 عملات ارتفاعاً:**\n"
+                    msg = "**أفضل العملات ارتفاعاً:**\n"
                     for symbol, percentage in gainers:
                         msg += f"• {symbol} | التحليل: {analyze_coin(symbol)} | الارتفاع: {percentage:.2f}%\n"
                     send_telegram(msg)
