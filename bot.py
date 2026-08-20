@@ -19,7 +19,7 @@ exchange = ccxt.bybit({
     'secret': BYBIT_SECRET,
     'enableRateLimit': True,
     'options': {
-        'defaultType': 'spot',  # أو 'future' إذا كنت تتداول في العقود الآجلة
+        'defaultType': 'spot',
     },
 })
 
@@ -65,10 +65,16 @@ def analyze_coin(symbol):
 
 def get_top_gainers():
     try:
-        exchange.load_markets()  # تحميل أسواق Bybit لتجنب أخطاء الجلب
+        exchange.load_markets()
         tickers = exchange.fetch_tickers()
-        usdt_pairs = {symbol: data for symbol, data in tickers.items() if '/USDT' in symbol}
-        sorted_pairs = sorted(usdt_pairs.items(), key=lambda item: item[1].get('percentage', 0) or 0, reverse=True)
+        usdt_pairs = []
+        for symbol, data in tickers.items():
+            if '/USDT' in symbol:
+                percentage = data.get('percentage')
+                if percentage is not None:
+                    usdt_pairs.append((symbol, data))
+                    
+        sorted_pairs = sorted(usdt_pairs, key=lambda item: item[1]['percentage'], reverse=True)
         return sorted_pairs[:5]
     except Exception as e:
         print(f"Error fetching top gainers: {e}")
