@@ -1,77 +1,80 @@
 import os
+import time
+import requests
+import ccxt
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import requests
 from sklearn.ensemble import RandomForestClassifier
 
+# الإعدادات
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
+BINANCE_KEY = os.environ.get("BINANCE_API_KEY")
+BINANCE_SECRET = os.environ.get("BINANCE_API_SECRET")
 
-def send_telegram_with_buttons(message):
+exchange = ccxt.binance({'apiKey': BINANCE_KEY, 'secret': BINANCE_SECRET, 'enableRateLimit': True})
+
+def send_msg(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    
-    inline_keyboard = {
-        "inline_keyboard": [
-            [
-                {"text": "✅ تنفيذ الصفقة ($10)", "callback_data": "buy_10"},
-                {"text": "❌ إلغاء", "callback_data": "cancel"}
-            ]
-        ]
-    }
-    
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown",
-        "reply_markup": inline_keyboard
-    }
-    
+    requests.post(url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
+
+# --- 1. جزء الذكاء الاصطناعي ---
+def get_prediction(symbol):
     try:
-        r = requests.post(url, json=payload)
-        print("Telegram Response:", r.status_code, r.text)
+        yahoo_symbol = symbol.replace('/USDT', '-USD')
+        df = yf.download(yahoo_symbol, period="1y", interval="1d", progress=False)
+        df['SMA_10'] = df['Close'].rolling(10).mean()
+        df['RSI'] = 100 - (100 / (1 + (df['Close'].diff().rolling(14).mean() / df['Close'].diff().abs().rolling(14).mean())))
+        df['Target'] = np.where(df['Close'].shift(-1) > df['Close'], 1, 0)
+        df.dropna(inplace=True)
+        model = RandomForestClassifier().fit(df[['SMA_10', 'RSI']], df['Target'])
+        pred = model.predict(df[['SMA_10', 'RSI']].iloc[[-1]])[0]
+        return "🟢 BUY" if pred == 1 else "🔴 WAIT"
+    except: return "⚠️"
+
+# --- 2. الماسح التلقائي ---
+def scanner():
+    tickers = exchange.fetch_tickers()
+    gainers = sorted([t for t in tickers if '/USDT' in t], key=lambda x: tickers[x]['percentage'], reverse=True)[:3]
+    msg = "🔍 **ماسح الفرص الآلي:**\n"
+    for s in gainers:
+        pred = get_prediction(s)
+        if "BUY" in pred:
+            msg += f"🔥 `{s}`: {tickers[s]['percentage']}% | {pred}\n"
+    if "🔥" in msg: send_msg(msg + "\nأرسل `/buy [العملة] [المبلغ]` للتنفيذ.")
+
+# --- 3. منفذ الأوامر (Command Listener) ---
+last_id = 0
+def listener():
+    global last_id
+    res = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={last_id + 1}").json()
+    for r in res.get("result", []):
+        last_id = r["update_id"]
+        text = r.get("message", {}).get("text", "").split()
+        if not text: continue
+        cmd = text[0]
+        
+        if cmd == "/buy":
+            symbol = f"{text[1].upper()}/USDT"
+            amt = float(text[2])
+            price = exchange.fetch_ticker(symbol)['last']
+            exchange.create_market_buy_order(symbol, amt / price)
+            send_msg(f"✅ تم شراء {symbol}")
+        elif cmd == "/sell":
+            symbol = f"{text[1].upper()}/USDT"
+            bal = exchange.fetch_balance()['free'].get(text[1].upper(), 0)
+            exchange.create_market_sell_order(symbol, bal)
+            send_msg(f"🚨 تم بيع {symbol}")
+
+# الحلقة الرئيسية
+while True:
+    try:
+        listener()
+        # مسح السوق كل ساعة (3600 ثانية)
+        # يمكنك إضافة منطق توقيت هنا
+        time.sleep(5)
     except Exception as e:
-        print(f"Error: {e}")
-
-# 1. جلب البيانات
-print("Fetching BTC data...")
-df = yf.download("BTC-USD", period="1y", interval="1d", progress=False)
-
-if isinstance(df.columns, pd.MultiIndex):
-    df.columns = df.columns.get_level_values(0)
-
-# 2. الحسابات والتحليل
-df['SMA_10'] = df['Close'].rolling(window=10).mean()
-df['SMA_30'] = df['Close'].rolling(window=30).mean()
-delta = df['Close'].diff()
-gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-rs = gain / loss
-df['RSI'] = 100 - (100 / (1 + rs))
-df['Returns'] = df['Close'].pct_change()
-df['Volatility'] = df['Returns'].rolling(window=20).std()
-df['Target'] = np.where(df['Close'].shift(-1) > df['Close'], 1, 0)
-df.dropna(inplace=True)
-
-features = ['SMA_10', 'SMA_30', 'RSI', 'Volatility', 'Returns']
-X, y = df[features], df['Target']
-
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X, y)
-
-latest_data = df.iloc[[-1]][features]
-prediction = model.predict(latest_data)[0]
-current_price = float(df['Close'].iloc[-1])
-
-signal = "ارتفاع (إشارة شراء 🟢)" if prediction == 1 else "انخفاض (إشارة حذر/بيع 🔴)"
-
-message = f"""
-🤖 **تنبيه إشارة تداول BTC**
-
-💰 **سعر BTC الحالي:** ${current_price:,.2f}
-🔮 **التوقع:** {signal}
-
-اختر من الأزرار أدناه للتحكم:
-"""
-
-send_telegram_with_buttons(message)
+        print(e)
+        time.sleep(10)
+        
