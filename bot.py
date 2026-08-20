@@ -13,11 +13,14 @@ CHAT_ID = os.environ.get("CHAT_ID")
 BINANCE_KEY = os.environ.get("BINANCE_API_KEY")
 BINANCE_SECRET = os.environ.get("BINANCE_API_SECRET")
 
-# الربط مع منصة Binance
-exchange = ccxt.binance({
+# الربط مع Bybit (تم التعديل هنا)
+exchange = ccxt.bybit({
     'apiKey': BINANCE_KEY,
     'secret': BINANCE_SECRET,
     'enableRateLimit': True,
+    'options': {
+        'defaultType': 'spot', # إذا كان البوت يتداول سبوت، استخدم 'spot'. إذا كان فيوتشرز استخدم 'future'
+    },
 })
 
 def send_telegram(message):
@@ -28,14 +31,13 @@ def send_telegram(message):
     except Exception as e:
         print(f"Error sending telegram msg: {e}")
 
-# 1. دالة للذكاء الاصطناعي لتحليل أي عملة
 def analyze_coin(symbol):
     try:
         yahoo_symbol = symbol.replace('/USDT', '-USD')
         df = yf.download(yahoo_symbol, period="1y", interval="1d", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
-
+        
         df['SMA_10'] = df['Close'].rolling(window=10).mean()
         df['SMA_30'] = df['Close'].rolling(window=30).mean()
         delta = df['Close'].diff()
@@ -49,7 +51,8 @@ def analyze_coin(symbol):
         df.dropna(inplace=True)
 
         features = ['SMA_10', 'SMA_30', 'RSI', 'Volatility', 'Returns']
-        X, y = df[features], df['Target']
+        X = df[features]
+        y = df['Target']
 
         model = RandomForestClassifier(n_estimators=100, random_state=42)
         model.fit(X, y)
@@ -60,7 +63,6 @@ def analyze_coin(symbol):
     except Exception as e:
         return "⚠️ بيانات غير كافية"
 
-# 2. دالة جلب Top Gainers
 def get_top_gainers():
     try:
         tickers = exchange.fetch_tickers()
@@ -71,7 +73,6 @@ def get_top_gainers():
         print(f"Error fetching top gainers: {e}")
         return []
 
-# 3. الاستماع لأوامر التليغرام
 last_update_id = 0
 def process_commands():
     global last_update_id
@@ -80,54 +81,52 @@ def process_commands():
         res = requests.get(url).json()
         for result in res.get("result", []):
             last_update_id = result["update_id"]
-            text = result.get("message", {}).get("text", "").strip()
-            
+            text = result["message"].get("text", "").strip()
+
             if text.startswith("/top"):
-                send_telegram("🔍 **جاري البحث في Binance عن Top Gainers وتحليلها بالذكاء الاصطناعي...**")
+                send_telegram("⏳ جاري البحث في Bybit عن Top Gainers...")
                 gainers = get_top_gainers()
                 if gainers:
-                    msg = "📊 **أفضل 5 عملات ارتفاعاً وتوقع الذكاء الاصطناعي:**\n\n"
+                    msg = "**أفضل 5 عملات ارتفاعاً:**\n"
                     for symbol, data in gainers:
-                        pred = analyze_coin(symbol)
-                        pct = data.get('percentage', 0)
-                        msg += f"🔹 `{symbol}` | نسبة الارتفاع: {pct:.2f}%\n💡 التحليل: {pred}\n\n"
-                    msg += "للتنفيذ أرسل:\n`/buy [اسم العملة] [المبلغ]` (مثال: `/buy SOL 10`)"
+                        msg += f"• {symbol} | التحليل: {analyze_coin(symbol)} | الارتفاع: {data['percentage']:.2f}%\n"
                     send_telegram(msg)
                 else:
-                    send_telegram("❌ لم نتمكن من جلب بيانات السوق حالياً.")
+                    send_telegram("❌ لم نتمكن من جلب بيانات السوق حالياً")
 
             elif text.startswith("/buy"):
                 parts = text.split()
-                if len(parts) >= 3:
+                if len(parts) > 2:
                     coin = parts[1].upper()
                     amount_usdt = float(parts[2])
                     symbol = f"{coin}/USDT" if not coin.endswith("/USDT") else coin
                     ticker = exchange.fetch_ticker(symbol)
                     price = ticker['last']
-                    order = exchange.create_market_buy_order(symbol, amount_usdt / price)
-                    send_telegram(f"✅ **تم شراء {symbol} بنجاح بقيمة ${amount_usdt}!**")
+                    amount = amount_usdt / price
+                    order = exchange.create_market_buy_order(symbol, amount)
+                    send_telegram(f"✅ تم شراء {symbol} بقيمة {amount_usdt}$")
                 else:
-                    send_telegram("⚠️ يرجى كتابة الأمر بهذا الشكل: `/buy SOL 10`")
+                    send_telegram("⚠️ يرجى كتابة الأمر بهذا الشكل: /buy SOL 10")
 
             elif text.startswith("/sell"):
                 parts = text.split()
-                if len(parts) >= 2:
+                if len(parts) > 2:
                     coin = parts[1].upper().replace("/USDT", "")
                     symbol = f"{coin}/USDT"
                     balance = exchange.fetch_balance()
-                    amount = balance['free'].get(coin, 0)
+                    amount = balance['total'].get(coin, 0)
                     if amount > 0:
                         order = exchange.create_market_sell_order(symbol, amount)
-                        send_telegram(f"🚨 **تم بيع كامل رصيد {coin} بنجاح!**")
+                        send_telegram(f"✅ تم بيع كامل رصيد {coin} بنجاح")
                     else:
-                        send_telegram(f"ℹ️ لا يوجد رصيد من {coin} للبيع.")
+                        send_telegram(f"❌ لا يوجد رصيد من {coin} للبيع")
                 else:
-                    send_telegram("⚠️ يرجى كتابة الأمر بهذا الشكل: `/sell SOL`")
+                    send_telegram("⚠️ يرجى كتابة الأمر بهذا الشكل: /sell SOL")
     except Exception as e:
         print(f"Error in command processing: {e}")
 
 if __name__ == "__main__":
-    send_telegram("🤖 **البوت يعمل الآن ومستعد لتلقي الأوامر!**\nجرب إرسال `/top` الآن.")
+    send_telegram("🤖 البوت يعمل الآن ومستعد لتلقي الأوامر")
     while True:
         process_commands()
         time.sleep(3)
