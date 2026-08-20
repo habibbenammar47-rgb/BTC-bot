@@ -65,19 +65,31 @@ def analyze_coin(symbol):
 
 def get_top_gainers():
     try:
-        exchange.load_markets()
-        tickers = exchange.fetch_tickers()
-        usdt_pairs = []
-        for symbol, data in tickers.items():
-            if '/USDT' in symbol:
-                percentage = data.get('percentage')
-                if percentage is not None:
-                    usdt_pairs.append((symbol, data))
+        # جلب البيانات مباشرة من API العام لـ Bybit (Spot Tickers) لتجنب قيود CCXT
+        url = "https://api.bybit.com/v5/market/tickers?category=spot"
+        response = requests.get(url).json()
+        
+        if response.get("retCode") == 0:
+            list_items = response.get("result", {}).get("list", [])
+            usdt_pairs = []
+            
+            for item in list_items:
+                symbol_raw = item.get("symbol", "")
+                if symbol_raw.endswith("USDT"):
+                    # تنسيق الرمز ليصبح مثل BTC/USDT
+                    base_coin = symbol_raw[:-4]
+                    formatted_symbol = f"{base_coin}/USDT"
                     
-        sorted_pairs = sorted(usdt_pairs, key=lambda item: item[1]['percentage'], reverse=True)
-        return sorted_pairs[:5]
+                    # حساب نسبة التغير (price24hPcnt تأتي كنسبة عشرية مثل 0.05 للإشارة إلى 5%)
+                    change_rate = float(item.get("price24hPcnt", 0)) * 100
+                    usdt_pairs.append((formatted_symbol, change_rate))
+            
+            # ترتيب العملات تنازلياً حسب نسبة الارتفاع
+            sorted_pairs = sorted(usdt_pairs, key=lambda x: x[1], reverse=True)
+            return sorted_pairs[:5]
+        return []
     except Exception as e:
-        print(f"Error fetching top gainers: {e}")
+        print(f"Error fetching top gainers from Bybit API: {e}")
         return []
 
 last_update_id = 0
@@ -94,9 +106,8 @@ def process_commands():
                 send_telegram("⏳ جاري البحث في Bybit عن Top Gainers...")
                 gainers = get_top_gainers()
                 if gainers:
-                    msg = "**أفضل 5 عملات ارتفاعاً:**\n"
-                    for symbol, data in gainers:
-                        percentage = data.get('percentage', 0) or 0
+                    msg = "**أفضل 5 عملات ارتفاعاً (Bybit):**\n"
+                    for symbol, percentage in gainers:
                         msg += f"• {symbol} | التحليل: {analyze_coin(symbol)} | الارتفاع: {percentage:.2f}%\n"
                     send_telegram(msg)
                 else:
@@ -138,3 +149,4 @@ if __name__ == "__main__":
     while True:
         process_commands()
         time.sleep(3)
+        
