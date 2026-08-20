@@ -11,7 +11,6 @@ CHAT_ID = os.environ.get("CHAT_ID")
 def send_telegram_with_buttons(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     
-    # إضافة أزرار تفاعلية
     inline_keyboard = {
         "inline_keyboard": [
             [
@@ -29,17 +28,19 @@ def send_telegram_with_buttons(message):
     }
     
     try:
-        requests.post(url, json=payload)
-        print("تم إرسال التقرير مع الأزرار للتليغرام بنجاح.")
+        r = requests.post(url, json=payload)
+        print("Telegram Response:", r.status_code, r.text)
     except Exception as e:
-        print(f"حدث خطأ أثناء الإرسال: {e}")
+        print(f"Error: {e}")
 
-# 1. تحليل السوق
-print("جاري تحليل بيانات البيتكوين...")
-df = yf.download("BTC-USD", period="3y", interval="1d", progress=False)
+# 1. جلب البيانات
+print("Fetching BTC data...")
+df = yf.download("BTC-USD", period="1y", interval="1d", progress=False)
+
 if isinstance(df.columns, pd.MultiIndex):
     df.columns = df.columns.get_level_values(0)
 
+# 2. الحسابات والتحليل
 df['SMA_10'] = df['Close'].rolling(window=10).mean()
 df['SMA_30'] = df['Close'].rolling(window=30).mean()
 delta = df['Close'].diff()
@@ -62,7 +63,6 @@ latest_data = df.iloc[[-1]][features]
 prediction = model.predict(latest_data)[0]
 current_price = float(df['Close'].iloc[-1])
 
-# 2. إعداد الرسالة
 signal = "ارتفاع (إشارة شراء 🟢)" if prediction == 1 else "انخفاض (إشارة حذر/بيع 🔴)"
 
 message = f"""
@@ -71,7 +71,7 @@ message = f"""
 💰 **سعر BTC الحالي:** ${current_price:,.2f}
 🔮 **التوقع:** {signal}
 
-اضغط على الزر أدناه للتحكم:
+اختر من الأزرار أدناه للتحكم:
 """
 
 send_telegram_with_buttons(message)
