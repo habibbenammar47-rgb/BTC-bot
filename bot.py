@@ -65,9 +65,10 @@ def analyze_coin(symbol):
 
 def get_top_gainers():
     try:
+        exchange.load_markets()  # تحميل أسواق Bybit لتجنب أخطاء الجلب
         tickers = exchange.fetch_tickers()
         usdt_pairs = {symbol: data for symbol, data in tickers.items() if '/USDT' in symbol}
-        sorted_pairs = sorted(usdt_pairs.items(), key=lambda item: item[1]['percentage'], reverse=True)
+        sorted_pairs = sorted(usdt_pairs.items(), key=lambda item: item[1].get('percentage', 0) or 0, reverse=True)
         return sorted_pairs[:5]
     except Exception as e:
         print(f"Error fetching top gainers: {e}")
@@ -89,7 +90,8 @@ def process_commands():
                 if gainers:
                     msg = "**أفضل 5 عملات ارتفاعاً:**\n"
                     for symbol, data in gainers:
-                        msg += f"• {symbol} | التحليل: {analyze_coin(symbol)} | الارتفاع: {data['percentage']:.2f}%\n"
+                        percentage = data.get('percentage', 0) or 0
+                        msg += f"• {symbol} | التحليل: {analyze_coin(symbol)} | الارتفاع: {percentage:.2f}%\n"
                     send_telegram(msg)
                 else:
                     send_telegram("❌ لم نتمكن من جلب بيانات السوق حالياً")
