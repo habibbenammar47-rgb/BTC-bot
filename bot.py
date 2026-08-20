@@ -10,16 +10,16 @@ from sklearn.ensemble import RandomForestClassifier
 # المتغيرات السرية
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
-BINANCE_KEY = os.environ.get("BINANCE_API_KEY")
-BINANCE_SECRET = os.environ.get("BINANCE_API_SECRET")
+BYBIT_KEY = os.environ.get("BYBIT_API_KEY")
+BYBIT_SECRET = os.environ.get("BYBIT_API_SECRET")
 
-# الربط مع Bybit (تم التعديل هنا)
+# الربط مع Bybit
 exchange = ccxt.bybit({
-    'apiKey': BINANCE_KEY,
-    'secret': BINANCE_SECRET,
+    'apiKey': BYBIT_KEY,
+    'secret': BYBIT_SECRET,
     'enableRateLimit': True,
     'options': {
-        'defaultType': 'spot', # إذا كان البوت يتداول سبوت، استخدم 'spot'. إذا كان فيوتشرز استخدم 'future'
+        'defaultType': 'spot',  # أو 'future' إذا كنت تتداول في العقود الآجلة
     },
 })
 
@@ -126,7 +126,7 @@ def process_commands():
         print(f"Error in command processing: {e}")
 
 if __name__ == "__main__":
-    send_telegram("🤖 البوت يعمل الآن ومستعد لتلقي الأوامر")
+    send_telegram("🤖 البوت يعمل الآن ومستعد لتلقي الأوامر عبر Bybit")
     while True:
         process_commands()
         time.sleep(3)
