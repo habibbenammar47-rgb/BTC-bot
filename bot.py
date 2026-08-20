@@ -13,7 +13,7 @@ CHAT_ID = os.environ.get("CHAT_ID")
 BYBIT_KEY = os.environ.get("BYBIT_API_KEY")
 BYBIT_SECRET = os.environ.get("BYBIT_API_SECRET")
 
-# الربط مع Bybit
+# الربط مع Bybit للتداول فقط
 exchange = ccxt.bybit({
     'apiKey': BYBIT_KEY,
     'secret': BYBIT_SECRET,
@@ -65,31 +65,22 @@ def analyze_coin(symbol):
 
 def get_top_gainers():
     try:
-        # جلب البيانات مباشرة من API العام لـ Bybit (Spot Tickers) لتجنب قيود CCXT
-        url = "https://api.bybit.com/v5/market/tickers?category=spot"
-        response = requests.get(url).json()
+        # جلب الأسعار العامة من مصدر لا يحظره سيرفر Railway
+        url = "https://api.binance.com/api/v3/ticker/24hr"
+        response = requests.get(url, timeout=10).json()
         
-        if response.get("retCode") == 0:
-            list_items = response.get("result", {}).get("list", [])
-            usdt_pairs = []
-            
-            for item in list_items:
-                symbol_raw = item.get("symbol", "")
-                if symbol_raw.endswith("USDT"):
-                    # تنسيق الرمز ليصبح مثل BTC/USDT
-                    base_coin = symbol_raw[:-4]
-                    formatted_symbol = f"{base_coin}/USDT"
-                    
-                    # حساب نسبة التغير (price24hPcnt تأتي كنسبة عشرية مثل 0.05 للإشارة إلى 5%)
-                    change_rate = float(item.get("price24hPcnt", 0)) * 100
-                    usdt_pairs.append((formatted_symbol, change_rate))
-            
-            # ترتيب العملات تنازلياً حسب نسبة الارتفاع
-            sorted_pairs = sorted(usdt_pairs, key=lambda x: x[1], reverse=True)
-            return sorted_pairs[:5]
-        return []
+        usdt_pairs = []
+        for item in response:
+            symbol = item.get("symbol", "")
+            if symbol.endswith("USDT"):
+                formatted_symbol = symbol[:-4] + "/USDT"
+                change = float(item.get("priceChangePercent", 0))
+                usdt_pairs.append((formatted_symbol, change))
+                
+        sorted_pairs = sorted(usdt_pairs, key=lambda x: x[1], reverse=True)
+        return sorted_pairs[:5]
     except Exception as e:
-        print(f"Error fetching top gainers from Bybit API: {e}")
+        print(f"Error fetching top gainers: {e}")
         return []
 
 last_update_id = 0
@@ -103,10 +94,10 @@ def process_commands():
             text = result["message"].get("text", "").strip()
 
             if text.startswith("/top"):
-                send_telegram("⏳ جاري البحث في Bybit عن Top Gainers...")
+                send_telegram("⏳ جاري البحث عن أفضل العملات ارتفاعاً...")
                 gainers = get_top_gainers()
                 if gainers:
-                    msg = "**أفضل 5 عملات ارتفاعاً (Bybit):**\n"
+                    msg = "**أفضل 5 عملات ارتفاعاً:**\n"
                     for symbol, percentage in gainers:
                         msg += f"• {symbol} | التحليل: {analyze_coin(symbol)} | الارتفاع: {percentage:.2f}%\n"
                     send_telegram(msg)
@@ -145,8 +136,7 @@ def process_commands():
         print(f"Error in command processing: {e}")
 
 if __name__ == "__main__":
-    send_telegram("🤖 البوت يعمل الآن ومستعد لتلقي الأوامر عبر Bybit")
+    send_telegram("🤖 البوت يعمل الآن ومستعد لتلقي الأوامر")
     while True:
         process_commands()
         time.sleep(3)
-        
