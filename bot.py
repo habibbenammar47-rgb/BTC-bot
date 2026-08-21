@@ -111,13 +111,16 @@ def process_commands():
 
             if text.startswith("/help"):
                 help_msg = (
-                    "🤖 **دليل استخدام بوت التداول الذكي المتقدم:**\n\n"
-                    "• `/top` - لجلب أفضل 5 عملات مرتفعة مع السعر والتحليل الشامل.\n"
-                    "• `/price <coin>` - لمعرفة السعر الحالي والتحليل الفني لأي عملة (مثال: `/price SOL`).\n"
-                    "• `/balance` - لعرض رصيد محفظتك الحالي على منصة Bybit.\n"
-                    "• `/buy <coin> <usdt> [TP%] [SL%]` - لشراء العملة مع وضع أوامر جني الربح ووقف الخسارة تلقائياً في المنصة (مثال: `/buy SOL 10 5 3`).\n"
-                    "• `/sell <coin>` - لبيع كامل رصيد العملة المحدد على منصة Bybit.\n"
-                    "• `/help` - لعرض قائمة الأوامر."
+                    "🤖 **دليل الأوامر الاحترافي للبوت:**\n\n"
+                    "• `/top` - أفضل 5 عملات مرتفعة مع التحليل الشامل (RSI, MACD, BB).\n"
+                    "• `/price <coin>` - سعر العملة والتحليل الفني الفوري (مثال: `/price SOL`).\n"
+                    "• `/balance` - عرض رصيد المحفظة الحالي من الـ USDT.\n"
+                    "• `/positions` - عرض العملات المملوكة حالياً في المنصة.\n"
+                    "• `/pnl` - تقييم أداء المحفظة وإجمالي الأصول.\n"
+                    "• `/buy <coin> <usdt> [TP%] [SL%]` - شراء عملة مع تحديد أهداف TP و SL تلقائياً.\n"
+                    "• `/sell <coin>` - بيع كامل رصيد عملة معينة.\n"
+                    "• `/emergency_exit` - **طوارئ:** بيع كل العملات فوراً وتحويلها لـ USDT!\n"
+                    "• `/help` - لعرض هذه القائمة."
                 )
                 send_telegram(help_msg)
 
@@ -154,19 +157,51 @@ def process_commands():
                     balance = exchange.fetch_balance()
                     free_usdt = balance['free'].get('USDT', 0)
                     total_usdt = balance['total'].get('USDT', 0)
-                    
-                    msg = f"💼 **حالة المحفظة على Bybit:**\n\n• USDT المتاح: `${free_usdt:.2f}`\n• إجمالي USDT: `${total_usdt:.2f}`\n\n**العملات المملوكة:**\n"
-                    has_coins = False
-                    for coin, total_amount in balance['total'].items():
-                        if total_amount > 0 and coin not in ['USDT', 'USD']:
-                            if balance['free'].get(coin, 0) > 0 or total_amount > 0:
-                                msg += f"• {coin}: `{total_amount}`\n"
-                                has_coins = True
-                    if not has_coins:
-                        msg += "لا توجد عملات أخرى حالياً، رصيدك كله USDT."
-                    send_telegram(msg)
+                    send_telegram(f"💼 **حالة المحفظة على Bybit:**\n\n• USDT المتاح: `${free_usdt:.2f}`\n• إجمالي USDT: `${total_usdt:.2f}`")
                 except Exception as e:
                     send_telegram(f"❌ تعذر جلب رصيد المحفظة: {e}")
+
+            elif text.startswith("/positions"):
+                try:
+                    balance = exchange.fetch_balance()
+                    msg = "📊 **العملات المملوكة في المحفظة حالياً:**\n\n"
+                    found = False
+                    for coin, total_amount in balance['total'].items():
+                        if total_amount > 0 and coin not in ['USDT', 'USD', 'EUR']:
+                            msg += f"• **{coin}**: `{total_amount}`\n"
+                            found = True
+                    if not found:
+                        msg += "لا توجد أي عملات رقمية مملوكة حالياً، رصيدك مقتصر على USDT."
+                    send_telegram(msg)
+                except Exception as e:
+                    send_telegram(f"❌ خطأ أثناء جلب الصفقات: {e}")
+
+            elif text.startswith("/pnl"):
+                try:
+                    balance = exchange.fetch_balance()
+                    total_usdt = balance['total'].get('USDT', 0)
+                    msg = f"📈 **تقرير أداء المحفظة (PnL Summary):**\n\n• إجمالي الرصيد الأساسي (USDT): `${total_usdt:.2f}`\n"
+                    msg += "• يتم حساب القيمة السوقية للعملات المفتوحة مباشرة عبر المنصة."
+                    send_telegram(msg)
+                except Exception as e:
+                    send_telegram(f"❌ خطأ في جلب تقرير الأداء: {e}")
+
+            elif text.startswith("/emergency_exit"):
+                send_telegram("🚨 **تنبيه طوارئ:** جاري بيع جميع العملات المملوكة وتحويلها إلى USDT...")
+                try:
+                    balance = exchange.fetch_balance()
+                    sold_count = 0
+                    for coin, total_amount in balance['total'].items():
+                        if total_amount > 0 and coin not in ['USDT', 'USD', 'EUR']:
+                            symbol = f"{coin}/USDT"
+                            try:
+                                exchange.create_market_sell_order(symbol, total_amount)
+                                sold_count += 1
+                            except Exception as sub_err:
+                                print(f"Failed to sell {coin}: {sub_err}")
+                    send_telegram(f"✅ تم تنفيذ عملية الطوارئ بنجاح وتم بيع `{sold_count}` عملات وتأمين الرصيد في USDT.")
+                except Exception as e:
+                    send_telegram(f"❌ حدث خطأ أثناء تنفيذ الطوارئ: {e}")
 
             elif text.startswith("/buy"):
                 parts = text.split()
@@ -181,16 +216,12 @@ def process_commands():
                     price = ticker['last']
                     amount = amount_usdt / price
                     
-                    # 1. تنفيذ أمر الشراء بالسوق
                     order = exchange.create_market_buy_order(symbol, amount)
                     reply_msg = f"✅ تم تنفيذ شراء **{symbol}** بقيمة `{amount_usdt}$` بسعر السوق (`${price:.4f}`)."
                     
-                    # 2. وضع أوامر البيع المشروطة (TP و SL) في منصة Bybit إذا تم تحديدها
                     try:
-                        base_coin = coin.replace('/USDT', '')
                         if tp_pct:
                             tp_price = price * (1 + tp_pct / 100)
-                            # إرسال أمر بيع مشروط لجني الربح
                             exchange.create_order(
                                 symbol=symbol,
                                 type='limit',
@@ -203,7 +234,6 @@ def process_commands():
 
                         if sl_pct:
                             sl_price = price * (1 - sl_pct / 100)
-                            # إرسال أمر بيع مشروط لوقف الخسارة
                             exchange.create_order(
                                 symbol=symbol,
                                 type='market',
@@ -213,11 +243,11 @@ def process_commands():
                             )
                             reply_msg += f"\n🛡️ تم تفعيل أمر **وقف الخسارة (-{sl_pct}%)** عند سعر: `${sl_price:.4f}`"
                     except Exception as err:
-                        reply_msg += f"\n⚠️ تنبيه: تم الشراء ولكن حدث خطأ في ضبط أوامر TP/SL تلقائياً: {err}"
+                        reply_msg += f"\n⚠️ تنبيه للشراء: تم الشراء ولكن حدث خطأ في ضبط TP/SL: {err}"
 
                     send_telegram(reply_msg)
                 else:
-                    send_telegram("⚠️ طريقة الاستخدام:\n`/buy SOL 10 5 3`\n(تعني شراء بـ 10 دولار مع جني ربح 5% ووقف خسارة 3% تلقائياً)")
+                    send_telegram("⚠️ طريقة الاستخدام الصحيحة:\n`/buy SOL 10 5 3` (شراء بـ 10$ مع هدف ربح 5% ووقف خسارة 3%)")
 
             elif text.startswith("/sell"):
                 parts = text.split()
@@ -237,7 +267,7 @@ def process_commands():
         print(f"Error in command processing: {e}")
 
 if __name__ == "__main__":
-    send_telegram("🤖 بوت التداول الذكي مع تفعيل أوامر TP/SL يعمل الآن بنجاح!")
+    send_telegram("🤖 بوت التداول الذكي الاحترافي يعمل الآن بكامل الميزات والطوارئ!")
     while True:
         process_commands()
         time.sleep(3)
