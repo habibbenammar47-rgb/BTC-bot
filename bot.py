@@ -75,14 +75,14 @@ def get_top_gainers():
                 df.columns = df.columns.get_level_values(0)
             if len(df) >= 2:
                 prev_close = df['Close'].iloc[-2]
-                latest_close = df['Close'].iloc[-1]
+                latest_close = float(df['Close'].iloc[-1])
                 change = float(((latest_close - prev_close) / prev_close) * 100)
-                results.append((symbol, change))
+                results.append((symbol, latest_close, change))
         except Exception as e:
             print(f"Error for {symbol}: {e}")
             continue
             
-    sorted_pairs = sorted(results, key=lambda x: x[1], reverse=True)
+    sorted_pairs = sorted(results, key=lambda x: x[2], reverse=True)
     return sorted_pairs[:5]
 
 last_update_id = 0
@@ -100,8 +100,8 @@ def process_commands():
                 gainers = get_top_gainers()
                 if gainers:
                     msg = "**أفضل العملات ارتفاعاً:**\n"
-                    for symbol, percentage in gainers:
-                        msg += f"• {symbol} | التحليل: {analyze_coin(symbol)} | الارتفاع: {percentage:.2f}%\n"
+                    for symbol, price, percentage in gainers:
+                        msg += f"• {symbol} | السعر: ${price:.2f} | الارتفاع: {percentage:.2f}% | التحليل: {analyze_coin(symbol)}\n"
                     send_telegram(msg)
                 else:
                     send_telegram("❌ لم نتمكن من جلب بيانات السوق حالياً")
@@ -142,3 +142,4 @@ if __name__ == "__main__":
     while True:
         process_commands()
         time.sleep(3)
+                
