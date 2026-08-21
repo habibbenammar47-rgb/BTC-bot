@@ -1,6 +1,6 @@
 ccxt
-requests
+yfinance
 pandas
 numpy
-yfinance
 scikit-learn
+requests
